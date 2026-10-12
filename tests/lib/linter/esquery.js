@@ -261,12 +261,16 @@ describe("esquery", () => {
 	});
 
 	describe("fastMatch", () => {
-		const ast = espree.parse("function f(a, b) { return a; }", {
-			ecmaVersion: 2022,
-		});
+		const ast = espree.parse(
+			"function f(a, b) { return a; } while (a) b();",
+			{
+				ecmaVersion: 2022,
+			},
+		);
 		const functionNode = ast.body[0];
 		const paramNode = functionNode.params[0];
 		const bodyNode = functionNode.body;
+		const whileNode = ast.body[1];
 
 		// [node, ancestry] pairs to check each selector against
 		const targets = [
@@ -274,6 +278,10 @@ describe("esquery", () => {
 			[functionNode, [ast]],
 			[paramNode, [functionNode, ast]],
 			[bodyNode, [functionNode, ast]],
+			[whileNode, [ast]],
+			[whileNode.test, [whileNode, ast]],
+			[whileNode.body, [whileNode, ast]],
+			[whileNode.body.expression, [whileNode.body, whileNode, ast]],
 		];
 
 		const fastMatchedSelectors = [
@@ -295,6 +303,19 @@ describe("esquery", () => {
 			"FunctionDeclaration > !.params",
 			"!FunctionDeclaration > .params",
 			"FunctionDeclaration > !*.params",
+
+			// other children of parents limited to node types
+			"FunctionDeclaration > Identifier",
+			"FunctionDeclaration > .body.body",
+			"FunctionDeclaration > *.params[name]",
+			":matches(WhileStatement, ForStatement) > :statement",
+			":matches(whilestatement, ForStatement) > :statement",
+			":matches(WhileStatement, FunctionDeclaration) > *",
+			":matches(WhileStatement, FunctionDeclaration) > .body",
+
+			// lists where every alternative is limited by node or parent type
+			"WhileStatement, ForStatement, :matches(WhileStatement, ForStatement) > :statement",
+			"WhileStatement > :statement, FunctionDeclaration > .params",
 		];
 
 		fastMatchedSelectors.forEach(source => {
@@ -316,11 +337,13 @@ describe("esquery", () => {
 		[
 			"FunctionDeclaration", // not a child selector
 			"FunctionDeclaration .params", // descendant, not child
-			"FunctionDeclaration > Identifier", // not a field
-			"FunctionDeclaration > .body.body", // dotted field name
-			"FunctionDeclaration > [name] .params", // not a plain field
+			"FunctionDeclaration > [name] .params", // descendant, not child
 			"* > .params", // parent isn't an identifier
-			"FunctionDeclaration > *.params[name]", // more than a wildcard and a field
+			":statement > :statement", // parent isn't an identifier
+			":matches(WhileStatement, :statement) > *", // parent isn't limited to identifiers
+			"WhileStatement[test] > *", // parent has more than an identifier
+			"WhileStatement, :statement", // an alternative isn't limited by type
+			"WhileStatement, FunctionDeclaration", // already handled by node type buckets
 		].forEach(source => {
 			it(`should not create a fast matcher for "${source}"`, () => {
 				assert.isNull(parse(source).fastMatch);
